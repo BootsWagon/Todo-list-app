@@ -29,6 +29,7 @@
                 element-loading-background="rgba(255, 255, 255, 0.7)"
                 :data-task-id="task.id"
                 :data-current-status="task.status"
+                @dblclick="editTask(task)"
               >
                 <div class="task-header">
                   <el-tag :type="getPriorityType(task.priority)">
@@ -59,9 +60,9 @@
                     </el-popconfirm>
                   </div>
                 </div>
-                <h3>{{ task.title }}</h3>
-                <p class="task-description">{{ task.description }}</p>
-                <div class="task-footer">
+                <h3 :style="getTextStyle(task.status)">{{ task.title }}</h3>
+                <p class="task-description" :style="getTextStyle(task.status)">{{ task.description }}</p>
+                <div class="task-footer" :style="getTextStyle(task.status)">
                   <small>Created: {{ formatDate(task.created_at) }}</small>
                   <small v-if="task.updated_at !== task.created_at">
                     · Updated: {{ formatDate(task.updated_at) }}
@@ -79,7 +80,8 @@
       v-model="dialogVisible"
       :title="editingTask ? 'Edit Task' : 'Add New Task'"
       width="500px"
-      :close-on-click-modal="false"
+      :close-on-click-modal="!hasUnsavedChanges"
+      :before-close="handleDialogClose"
       @closed="resetForm"
     >
       <el-form 
@@ -137,10 +139,28 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false" :disabled="loading">Cancel</el-button>
+        <el-button @click="handleDialogClose" :disabled="loading">Cancel</el-button>
         <el-button type="primary" @click="saveTask" :loading="loading">
           {{ editingTask ? 'Update' : 'Create' }}
         </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Confirmation Dialog -->
+    <el-dialog
+      v-model="showUnsavedDialog"
+      title="Unsaved Changes"
+      width="400px"
+      :close-on-click-modal="false"
+    >
+      <span>You have unsaved changes. Do you want to save them before closing?</span>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="discardChanges">Don't Save</el-button>
+          <el-button type="primary" @click="saveAndClose" :loading="loading">
+            Save & Close
+          </el-button>
+        </div>
       </template>
     </el-dialog>
 
@@ -189,6 +209,12 @@ export default {
       description: '',
       status: 'UPCOMING',
       priority: 'MEDIUM'
+    })
+    const showUnsavedDialog = ref(false)
+    const originalTaskForm = ref(null)
+    const hasUnsavedChanges = computed(() => {
+      if (!originalTaskForm.value) return false
+      return JSON.stringify(taskForm.value) !== JSON.stringify(originalTaskForm.value)
     })
 
     // Create a local copy of tasks grouped by status to prevent flickering
@@ -261,22 +287,27 @@ export default {
     }))
 
     const getColumnStyle = (status) => {
-      const opacity = currentTheme.value.columnOpacity?.[status] || 0.1;
+      const hasBackgroundImage = !!currentTheme.value.columnBackgroundImages?.[status];
       const baseStyle = {
-        '--column-opacity': opacity,
-        backgroundColor: currentTheme.value.columnBackgrounds[status] || `rgba(255, 255, 255, ${opacity})`
+        backgroundColor: currentTheme.value.columnBackgrounds[status] || 'rgba(255, 255, 255, 0.1)'
       };
 
-      if (currentTheme.value.columnBackgroundImages?.[status]) {
+      if (hasBackgroundImage) {
         return {
           ...baseStyle,
           '--column-bg-image': `url(${currentTheme.value.columnBackgroundImages[status]})`,
           '--column-bg-size': currentTheme.value.columnImageFit?.[status] || 'cover',
-          '--column-bg-position': currentTheme.value.columnImagePosition?.[status] || 'center center'
+          '--column-bg-position': currentTheme.value.columnImagePosition?.[status] || 'center center',
+          '--column-bg-opacity': '1',
+          '--column-overlay-opacity': '0'
         };
       }
 
-      return baseStyle;
+      return {
+        ...baseStyle,
+        '--column-bg-opacity': '0',
+        '--column-overlay-opacity': currentTheme.value.columnOpacity?.[status] || '0.1'
+      };
     }
 
     const getColumnTitleStyle = (status) => ({
@@ -284,36 +315,114 @@ export default {
     })
 
     const getCardStyle = (status) => {
-      const opacity = currentTheme.value.cardOpacity?.[status] || 0.95;
+      const hasBackgroundImage = !!currentTheme.value.cardBackgroundImages?.[status];
       const baseStyle = {
-        '--card-opacity': opacity,
-        backgroundColor: currentTheme.value.cardBackgrounds[status] || `rgba(255, 255, 255, ${opacity})`
+        backgroundColor: currentTheme.value.cardBackgrounds[status] || 'rgba(255, 255, 255, 0.95)'
       };
 
-      if (currentTheme.value.cardBackgroundImages?.[status]) {
+      if (hasBackgroundImage) {
         return {
           ...baseStyle,
           '--card-bg-image': `url(${currentTheme.value.cardBackgroundImages[status]})`,
           '--card-bg-size': currentTheme.value.cardImageFit?.[status] || 'cover',
-          '--card-bg-position': currentTheme.value.cardImagePosition?.[status] || 'center center'
+          '--card-bg-position': currentTheme.value.cardImagePosition?.[status] || 'center center',
+          '--card-bg-opacity': '1',
+          '--card-overlay-opacity': '0'
         };
       }
 
-      return baseStyle;
+      return {
+        ...baseStyle,
+        '--card-bg-opacity': '0',
+        '--card-overlay-opacity': currentTheme.value.cardOpacity?.[status] || '0.95'
+      };
     }
+
+    const getTextStyle = (status) => {
+      const backgroundColor = currentTheme.value.cardBackgrounds[status];
+      const hasImage = !!currentTheme.value.cardBackgroundImages?.[status];
+      
+      // If there's a background image, we'll use white text with a text shadow
+      if (hasImage) {
+        return {
+          color: '#fff',
+          textShadow: '0 1px 4px rgba(0,0,0,0.8)'
+        };
+      }
+      
+      // For solid backgrounds, calculate contrast
+      if (backgroundColor) {
+        // Convert rgba to rgb considering opacity against white background
+        const rgba = backgroundColor.match(/[\d.]+/g);
+        if (rgba && rgba.length >= 3) {
+          const alpha = rgba.length === 4 ? parseFloat(rgba[3]) : 1;
+          const r = Math.round(parseInt(rgba[0]) * alpha + 255 * (1 - alpha));
+          const g = Math.round(parseInt(rgba[1]) * alpha + 255 * (1 - alpha));
+          const b = Math.round(parseInt(rgba[2]) * alpha + 255 * (1 - alpha));
+          
+          // Calculate relative luminance
+          const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+          
+          // Use white text for dark backgrounds, black text for light backgrounds
+          return {
+            color: luminance > 0.5 ? '#000000' : '#ffffff'
+          };
+        }
+      }
+      
+      // Default to black text
+      return {
+        color: '#000000'
+      };
+    };
+
+    const handleDialogClose = (done) => {
+      if (hasUnsavedChanges.value) {
+        showUnsavedDialog.value = true;
+      } else {
+        dialogVisible.value = false;
+        if (done) done();
+      }
+    };
+
+    const saveAndClose = async () => {
+      await saveTask();
+      showUnsavedDialog.value = false;
+      dialogVisible.value = false;
+    };
+
+    const discardChanges = () => {
+      showUnsavedDialog.value = false;
+      dialogVisible.value = false;
+      resetForm();
+    };
+
+    const showAddTaskDialog = () => {
+      resetForm();
+      originalTaskForm.value = { ...taskForm.value };
+      dialogVisible.value = true;
+    };
+
+    const editTask = (task) => {
+      editingTask.value = task;
+      taskForm.value = { ...task };
+      originalTaskForm.value = { ...task };
+      dialogVisible.value = true;
+    };
 
     const resetForm = () => {
       if (taskFormRef.value) {
-        taskFormRef.value.resetFields()
+        taskFormRef.value.resetFields();
       }
-      editingTask.value = null
+      editingTask.value = null;
       taskForm.value = {
         title: '',
         description: '',
         status: 'UPCOMING',
         priority: 'MEDIUM'
-      }
-    }
+      };
+      originalTaskForm.value = null;
+    };
 
     const fetchTasks = async () => {
       loading.value = true
@@ -519,17 +628,6 @@ export default {
       });
     }, { deep: true });
 
-    const showAddTaskDialog = () => {
-      resetForm()
-      dialogVisible.value = true
-    }
-
-    const editTask = (task) => {
-      editingTask.value = task
-      taskForm.value = { ...task }
-      dialogVisible.value = true
-    }
-
     const saveTask = async () => {
       if (!taskFormRef.value) return
 
@@ -620,7 +718,13 @@ export default {
       getColumnTitleStyle,
       getCardStyle,
       dragStart,
-      dragEnd
+      dragEnd,
+      getTextStyle,
+      showUnsavedDialog,
+      hasUnsavedChanges,
+      handleDialogClose,
+      saveAndClose,
+      discardChanges
     }
   }
 }
@@ -658,7 +762,7 @@ export default {
   background-size: var(--column-bg-size, cover);
   background-position: var(--column-bg-position, center center);
   background-repeat: no-repeat;
-  opacity: var(--column-opacity, 0.1);
+  opacity: var(--column-bg-opacity, 0);
   z-index: 0;
   pointer-events: none;
   border-radius: inherit;
@@ -671,7 +775,7 @@ export default {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(255, 255, 255, var(--column-opacity, 0.1));
+  background-color: rgba(255, 255, 255, var(--column-overlay-opacity, 0.1));
   z-index: 0;
   pointer-events: none;
   border-radius: inherit;
@@ -719,7 +823,7 @@ export default {
   border-radius: 8px;
   transition: all 0.2s ease;
   backdrop-filter: blur(5px);
-  cursor: grab;
+  cursor: pointer;
   position: relative;
   overflow: hidden;
   transform-origin: center center;
@@ -738,7 +842,7 @@ export default {
   background-size: var(--card-bg-size, cover);
   background-position: var(--card-bg-position, center center);
   background-repeat: no-repeat;
-  opacity: var(--card-opacity, 0.95);
+  opacity: var(--card-bg-opacity, 0);
   z-index: 0;
   pointer-events: none;
 }
@@ -750,7 +854,7 @@ export default {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(255, 255, 255, var(--card-opacity, 0.95));
+  background-color: rgba(255, 255, 255, var(--card-overlay-opacity, 0.95));
   z-index: 0;
   pointer-events: none;
 }

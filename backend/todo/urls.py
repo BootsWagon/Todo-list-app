@@ -11,4 +11,5 @@ router.register(r'tasks', TaskViewSet)
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
+    path('api/', include('themes.urls')),  # Add themes URLs
 ] 

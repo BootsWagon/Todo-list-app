@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { ThemeService } from '../services/api';
 
 const defaultTheme = {
   boardBackground: 'linear-gradient(to bottom, #1a1a2e, #16213e)',
@@ -75,55 +76,85 @@ const defaultTheme = {
 
 export const useThemeStore = () => {
   const currentTheme = ref(structuredClone(defaultTheme));
+  const loading = ref(false);
+  const error = ref(null);
 
-  const updateTheme = (newTheme) => {
-    // Ensure all required properties exist
-    const updatedTheme = {
-      boardBackground: newTheme.boardBackground || defaultTheme.boardBackground,
-      boardBackgroundImage: newTheme.boardBackgroundImage,
-      boardImageFit: newTheme.boardImageFit || defaultTheme.boardImageFit,
-      boardImagePosition: newTheme.boardImagePosition || defaultTheme.boardImagePosition,
-      columnBackgrounds: { ...defaultTheme.columnBackgrounds, ...newTheme.columnBackgrounds },
-      columnOpacity: { ...defaultTheme.columnOpacity, ...newTheme.columnOpacity },
-      columnBackgroundImages: { ...defaultTheme.columnBackgroundImages, ...newTheme.columnBackgroundImages },
-      columnImageFit: { ...defaultTheme.columnImageFit, ...newTheme.columnImageFit },
-      columnImagePosition: { ...defaultTheme.columnImagePosition, ...newTheme.columnImagePosition },
-      cardBackgrounds: { ...defaultTheme.cardBackgrounds, ...newTheme.cardBackgrounds },
-      cardBackgroundImages: { ...defaultTheme.cardBackgroundImages, ...newTheme.cardBackgroundImages },
-      cardImageFit: { ...defaultTheme.cardImageFit, ...newTheme.cardImageFit },
-      cardImagePosition: { ...defaultTheme.cardImagePosition, ...newTheme.cardImagePosition },
-      cardOpacity: { ...defaultTheme.cardOpacity, ...newTheme.cardOpacity },
-      columnTitleColors: { ...defaultTheme.columnTitleColors, ...newTheme.columnTitleColors }
-    };
+  const updateTheme = async (newTheme) => {
+    loading.value = true;
+    error.value = null;
     
-    currentTheme.value = updatedTheme;
-    localStorage.setItem('taskboard-theme', JSON.stringify(updatedTheme));
-  };
-
-  const loadTheme = () => {
     try {
-      const savedTheme = localStorage.getItem('taskboard-theme');
-      if (savedTheme) {
-        const parsedTheme = JSON.parse(savedTheme);
-        updateTheme(parsedTheme);
-      }
-    } catch (error) {
-      console.error('Error loading theme:', error);
-      resetTheme();
+      // Ensure all required properties exist
+      const updatedTheme = {
+        boardBackground: newTheme.boardBackground || defaultTheme.boardBackground,
+        boardBackgroundImage: newTheme.boardBackgroundImage,
+        boardImageFit: newTheme.boardImageFit || defaultTheme.boardImageFit,
+        boardImagePosition: newTheme.boardImagePosition || defaultTheme.boardImagePosition,
+        columnBackgrounds: { ...defaultTheme.columnBackgrounds, ...newTheme.columnBackgrounds },
+        columnOpacity: { ...defaultTheme.columnOpacity, ...newTheme.columnOpacity },
+        columnBackgroundImages: { ...defaultTheme.columnBackgroundImages, ...newTheme.columnBackgroundImages },
+        columnImageFit: { ...defaultTheme.columnImageFit, ...newTheme.columnImageFit },
+        columnImagePosition: { ...defaultTheme.columnImagePosition, ...newTheme.columnImagePosition },
+        cardBackgrounds: { ...defaultTheme.cardBackgrounds, ...newTheme.cardBackgrounds },
+        cardBackgroundImages: { ...defaultTheme.cardBackgroundImages, ...newTheme.cardBackgroundImages },
+        cardImageFit: { ...defaultTheme.cardImageFit, ...newTheme.cardImageFit },
+        cardImagePosition: { ...defaultTheme.cardImagePosition, ...newTheme.cardImagePosition },
+        cardOpacity: { ...defaultTheme.cardOpacity, ...newTheme.cardOpacity },
+        columnTitleColors: { ...defaultTheme.columnTitleColors, ...newTheme.columnTitleColors }
+      };
+      
+      const response = await ThemeService.updateTheme(updatedTheme);
+      currentTheme.value = response.data;
+    } catch (err) {
+      error.value = err.message;
+      throw err;
+    } finally {
+      loading.value = false;
     }
   };
 
-  const resetTheme = () => {
-    currentTheme.value = structuredClone(defaultTheme);
-    localStorage.removeItem('taskboard-theme');
+  const loadTheme = async () => {
+    loading.value = true;
+    error.value = null;
+    
+    try {
+      const response = await ThemeService.getCurrentTheme();
+      if (response.data) {
+        currentTheme.value = response.data;
+      }
+    } catch (err) {
+      error.value = err.message;
+      console.error('Error loading theme:', err);
+      // If we can't load the theme, use default
+      currentTheme.value = structuredClone(defaultTheme);
+    } finally {
+      loading.value = false;
+    }
   };
 
-  // Load theme from localStorage on initialization
+  const resetTheme = async () => {
+    loading.value = true;
+    error.value = null;
+    
+    try {
+      await ThemeService.resetTheme();
+      currentTheme.value = structuredClone(defaultTheme);
+    } catch (err) {
+      error.value = err.message;
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  // Load theme from backend on initialization
   loadTheme();
 
   return {
     currentTheme,
     updateTheme,
     resetTheme,
+    loading,
+    error
   };
 }; 

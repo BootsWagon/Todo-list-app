@@ -9,15 +9,16 @@
       v-model="dialogVisible"
       title="Customize Theme"
       width="600px"
+      :close-on-click-modal="false"
+      :before-close="handleClose"
     >
-      <el-tabs>
+      <el-tabs v-model="activeTab" v-loading="saving">
         <el-tab-pane label="Board">
           <el-form label-position="top">
             <el-form-item label="Board Background">
               <el-color-picker
                 v-model="themeForm.boardBackground"
                 show-alpha
-                @change="updateTheme"
               />
             </el-form-item>
             <el-form-item label="Background Image">
@@ -42,13 +43,13 @@
               </div>
               <div v-if="themeForm.boardBackgroundImage">
                 <div class="image-fit-controls">
-                  <el-radio-group v-model="themeForm.boardImageFit" @change="updateTheme">
+                  <el-radio-group v-model="themeForm.boardImageFit">
                     <el-radio-button label="cover">Cover</el-radio-button>
                     <el-radio-button label="contain">Contain</el-radio-button>
                   </el-radio-group>
                 </div>
                 <div class="image-position-controls">
-                  <el-select v-model="themeForm.boardImagePosition" @change="updateTheme">
+                  <el-select v-model="themeForm.boardImagePosition">
                     <el-option label="Center" value="center center" />
                     <el-option label="Top" value="center top" />
                     <el-option label="Bottom" value="center bottom" />
@@ -65,7 +66,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="Columns">
-          <el-form label-position="top">
+          <el-form label-position="top" v-loading="saving">
             <div v-for="status in statuses" :key="status.value" class="status-section">
               <h3>{{ status.label }}</h3>
               <el-row :gutter="20">
@@ -74,7 +75,6 @@
                     <el-color-picker
                       v-model="themeForm.columnBackgrounds[status.value]"
                       show-alpha
-                      @change="updateTheme"
                     />
                     <div class="opacity-control">
                       <span>Column Opacity:</span>
@@ -83,7 +83,6 @@
                         :min="0"
                         :max="1"
                         :step="0.05"
-                        @change="updateTheme"
                       />
                     </div>
                     <div class="image-upload">
@@ -108,8 +107,7 @@
                     <div v-if="themeForm.columnBackgroundImages[status.value]">
                       <div class="image-fit-controls">
                         <el-radio-group 
-                          v-model="themeForm.columnImageFit[status.value]" 
-                          @change="updateTheme"
+                          v-model="themeForm.columnImageFit[status.value]"
                         >
                           <el-radio-button label="cover">Cover</el-radio-button>
                           <el-radio-button label="contain">Contain</el-radio-button>
@@ -117,8 +115,7 @@
                       </div>
                       <div class="image-position-controls">
                         <el-select 
-                          v-model="themeForm.columnImagePosition[status.value]" 
-                          @change="updateTheme"
+                          v-model="themeForm.columnImagePosition[status.value]"
                         >
                           <el-option label="Center" value="center center" />
                           <el-option label="Top" value="center top" />
@@ -135,7 +132,6 @@
                     <el-color-picker
                       v-model="themeForm.cardBackgrounds[status.value]"
                       show-alpha
-                      @change="updateTheme"
                     />
                     <div class="image-upload">
                       <el-upload
@@ -159,8 +155,7 @@
                     <div v-if="themeForm.cardBackgroundImages[status.value]">
                       <div class="image-fit-controls">
                         <el-radio-group 
-                          v-model="themeForm.cardImageFit[status.value]" 
-                          @change="updateTheme"
+                          v-model="themeForm.cardImageFit[status.value]"
                         >
                           <el-radio-button label="cover">Cover</el-radio-button>
                           <el-radio-button label="contain">Contain</el-radio-button>
@@ -168,8 +163,7 @@
                       </div>
                       <div class="image-position-controls">
                         <el-select 
-                          v-model="themeForm.cardImagePosition[status.value]" 
-                          @change="updateTheme"
+                          v-model="themeForm.cardImagePosition[status.value]"
                         >
                           <el-option label="Center" value="center center" />
                           <el-option label="Top" value="center top" />
@@ -186,7 +180,6 @@
                         :min="0"
                         :max="1"
                         :step="0.05"
-                        @change="updateTheme"
                       />
                     </div>
                   </el-form-item>
@@ -208,10 +201,31 @@
       </el-tabs>
 
       <template #footer>
-        <el-button @click="resetTheme">Reset to Default</el-button>
-        <el-button type="primary" @click="dialogVisible = false">
-          Close
-        </el-button>
+        <div class="dialog-footer">
+          <el-button @click="handleClose" :disabled="saving">Cancel</el-button>
+          <el-button type="warning" @click="handleReset" :disabled="saving">Reset to Default</el-button>
+          <el-button type="primary" @click="handleSave" :loading="saving">
+            Save Changes
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- Unsaved Changes Dialog -->
+    <el-dialog
+      v-model="showUnsavedDialog"
+      title="Unsaved Changes"
+      width="400px"
+      :close-on-click-modal="false"
+    >
+      <span>You have unsaved changes. Do you want to save them before closing?</span>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="handleDiscardChanges" :disabled="saving">Don't Save</el-button>
+          <el-button type="primary" @click="handleSaveAndClose" :loading="saving">
+            Save & Close
+          </el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -236,14 +250,34 @@ export default {
   },
   setup() {
     const dialogVisible = ref(false)
+    const showUnsavedDialog = ref(false)
+    const saving = ref(false)
+    const activeTab = ref('Board')
     const { currentTheme, updateTheme, resetTheme } = useThemeStore()
     const uploadLoading = ref(false)
     
-    const themeForm = computed(() => currentTheme.value)
+    // Keep track of original theme when dialog opens
+    const originalTheme = ref(null)
+    const themeForm = ref({})
+
+    const hasUnsavedChanges = computed(() => {
+      if (!originalTheme.value) return false;
+      return JSON.stringify(themeForm.value) !== JSON.stringify(originalTheme.value);
+    });
 
     const showDialog = () => {
-      dialogVisible.value = true
-    }
+      originalTheme.value = JSON.parse(JSON.stringify(currentTheme.value));
+      themeForm.value = JSON.parse(JSON.stringify(currentTheme.value));
+      dialogVisible.value = true;
+    };
+
+    const handleClose = () => {
+      if (hasUnsavedChanges.value) {
+        showUnsavedDialog.value = true;
+      } else {
+        dialogVisible.value = false;
+      }
+    };
 
     const handleImageUpload = async (file) => {
       return new Promise((resolve, reject) => {
@@ -255,21 +289,114 @@ export default {
         }
 
         const reader = new FileReader()
-        reader.onload = (e) => resolve(e.target.result)
-        reader.onerror = (e) => reject(e)
-        reader.readAsDataURL(file)
-      })
-    }
+        reader.onload = (e) => {
+          // Create an image element to resize the image
+          const img = new Image();
+          img.onload = () => {
+            // Create canvas for resizing
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            
+            // Calculate new dimensions (max 800px width/height)
+            const maxSize = 800;
+            if (width > maxSize || height > maxSize) {
+              if (width > height) {
+                height = Math.round((height * maxSize) / width);
+                width = maxSize;
+              } else {
+                width = Math.round((width * maxSize) / height);
+                height = maxSize;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            
+            // Draw resized image
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // Get compressed image data
+            const compressedImage = canvas.toDataURL('image/jpeg', 0.7);
+            resolve(compressedImage);
+          };
+          img.onerror = () => reject(new Error('Failed to load image'));
+          img.src = e.target.result;
+        };
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(file);
+      });
+    };
+
+    const handleSave = async () => {
+      saving.value = true;
+      try {
+        await updateTheme(themeForm.value);
+        ElMessage.success('Theme settings saved successfully');
+        originalTheme.value = JSON.parse(JSON.stringify(themeForm.value));
+        dialogVisible.value = false;
+      } catch (error) {
+        if (error.response?.status === 413) {
+          ElMessage.error('Theme data is too large. Try using fewer or smaller images.');
+        } else {
+          ElMessage.error('Failed to save theme settings');
+        }
+        console.error('Error saving theme:', error);
+      } finally {
+        saving.value = false;
+      }
+    };
+
+    const handleSaveAndClose = async () => {
+      saving.value = true;
+      try {
+        await updateTheme(themeForm.value);
+        ElMessage.success('Theme settings saved successfully');
+        originalTheme.value = JSON.parse(JSON.stringify(themeForm.value));
+        showUnsavedDialog.value = false;
+        dialogVisible.value = false;
+      } catch (error) {
+        if (error.response?.status === 413) {
+          ElMessage.error('Theme data is too large. Try using fewer or smaller images.');
+        } else {
+          ElMessage.error('Failed to save theme settings');
+        }
+        console.error('Error saving theme:', error);
+      } finally {
+        saving.value = false;
+      }
+    };
+
+    const handleDiscardChanges = () => {
+      themeForm.value = JSON.parse(JSON.stringify(originalTheme.value));
+      showUnsavedDialog.value = false;
+      dialogVisible.value = false;
+    };
+
+    const handleReset = async () => {
+      try {
+        saving.value = true;
+        await resetTheme();
+        themeForm.value = JSON.parse(JSON.stringify(currentTheme.value));
+        originalTheme.value = JSON.parse(JSON.stringify(currentTheme.value));
+        ElMessage.success('Theme reset to default');
+      } catch (error) {
+        ElMessage.error('Failed to reset theme');
+        console.error('Error resetting theme:', error);
+      } finally {
+        saving.value = false;
+      }
+    };
 
     const handleBoardImageUpload = async (file) => {
       uploadLoading.value = true
       try {
         const imageUrl = await handleImageUpload(file.raw)
-        const newTheme = { 
+        themeForm.value = { 
           ...themeForm.value, 
           boardBackgroundImage: imageUrl
         }
-        updateTheme(newTheme)
         ElMessage.success('Board background image updated')
       } catch (error) {
         if (!error.message?.includes('File too large')) {
@@ -284,14 +411,13 @@ export default {
       uploadLoading.value = true
       try {
         const imageUrl = await handleImageUpload(file.raw)
-        const newTheme = {
+        themeForm.value = {
           ...themeForm.value,
           columnBackgroundImages: {
             ...themeForm.value.columnBackgroundImages,
             [status]: imageUrl
           }
         }
-        updateTheme(newTheme)
         ElMessage.success('Column background image updated')
       } catch (error) {
         if (!error.message?.includes('File too large')) {
@@ -306,14 +432,13 @@ export default {
       uploadLoading.value = true
       try {
         const imageUrl = await handleImageUpload(file.raw)
-        const newTheme = {
+        themeForm.value = {
           ...themeForm.value,
           cardBackgroundImages: {
             ...themeForm.value.cardBackgroundImages,
             [status]: imageUrl
           }
         }
-        updateTheme(newTheme)
         ElMessage.success('Card background image updated')
       } catch (error) {
         if (!error.message?.includes('File too large')) {
@@ -329,7 +454,7 @@ export default {
         ...themeForm.value, 
         boardBackgroundImage: null
       }
-      updateTheme(newTheme)
+      themeForm.value = newTheme
       ElMessage.success('Board background image cleared')
     }
 
@@ -341,7 +466,7 @@ export default {
           [status]: null
         }
       }
-      updateTheme(newTheme)
+      themeForm.value = newTheme
       ElMessage.success('Column background image cleared')
     }
 
@@ -353,28 +478,30 @@ export default {
           [status]: null
         }
       }
-      updateTheme(newTheme)
+      themeForm.value = newTheme
       ElMessage.success('Card background image cleared')
-    }
-
-    const handleReset = () => {
-      resetTheme()
-      ElMessage.success('Theme reset to default')
     }
 
     return {
       dialogVisible,
+      showUnsavedDialog,
+      saving,
+      activeTab,
       themeForm,
       showDialog,
-      updateTheme,
-      resetTheme: handleReset,
+      handleClose,
+      handleSave,
+      handleSaveAndClose,
+      handleDiscardChanges,
+      handleReset,
       handleBoardImageUpload,
       handleColumnImageUpload,
       handleCardImageUpload,
       clearBoardImage,
       clearColumnImage,
       clearCardImage,
-      uploadLoading
+      uploadLoading,
+      hasUnsavedChanges
     }
   }
 }
@@ -466,5 +593,15 @@ export default {
 
 .el-select {
   width: 100%;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.el-form {
+  min-height: 400px;
 }
 </style> 

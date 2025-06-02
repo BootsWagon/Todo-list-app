@@ -27,4 +27,18 @@ export const TaskService = {
   deleteTask(id) {
     return apiClient.delete(`/tasks/${id}/`);
   },
+};
+
+export const ThemeService = {
+  getCurrentTheme() {
+    return apiClient.get('/theme/');
+  },
+
+  updateTheme(theme) {
+    return apiClient.put('/theme/', theme);
+  },
+
+  resetTheme() {
+    return apiClient.delete('/theme/');
+  },
 }; 
