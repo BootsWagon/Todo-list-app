@@ -11,7 +11,8 @@ services:
       - DEBUG=1
       - DJANGO_SETTINGS_MODULE=todo.settings
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
@@ -31,6 +32,11 @@ services:
       - POSTGRES_DB=tododb
       - POSTGRES_USER=todouser
       - POSTGRES_PASSWORD=todopass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U todouser -d tododb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data: 
